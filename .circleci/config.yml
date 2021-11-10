@@ -7,12 +7,15 @@ version: 2.1
 workflows:
   test-env-vars:
     jobs:
-      - build-image:
+      - build-gin:
+          context: dockerhub
+      - build-next:
           context: dockerhub
       - update-manifest:
           context: dockerhub
           requires:
-            - build-image
+            - build-gin
+            - build-next
           filters:
             branches:
               only:
@@ -25,7 +28,7 @@ references:
       password: $DOCKERHUB_PASSWORD
 
 jobs:
-  build-image:
+  build-gin:
     docker:
       - image: circleci/golang:1.15.8
         <<: *docker_hub_authentication
@@ -42,7 +45,25 @@ jobs:
       - run:
           name: Push Image
           command: docker push $DOCKERHUB_REPO:go-gin$CIRCLE_BUILD_NUM
-  
+
+  build-next:
+    docker:
+      - image: circleci/golang:1.15.8
+        <<: *docker_hub_authentication
+    steps:
+      - checkout
+      - setup_remote_docker:
+          version: 19.03.13
+      - run:
+          name: Docker Login
+          command: echo $DOCKERHUB_PASSWORD | docker login -u $DOCKERHUB_USER --password-stdin
+      - run:
+          name: Build Image
+          command: docker build -f next/Dockerfile . --tag $DOCKERHUB_REPO:node-next$CIRCLE_BUILD_NUM --no-cache
+      - run:
+          name: Push Image
+          command: docker push $DOCKERHUB_REPO:node-next$CIRCLE_BUILD_NUM
+
   update-manifest:
     docker:
       - image: circleci/golang:1.15.8
@@ -72,11 +93,12 @@ jobs:
             cd eem-manifests/manifests
             git checkout -B update-image-tag-$CIRCLE_BUILD_NUM
             yq eval -i ".spec.template.spec.containers[0].image=\"$DOCKERHUB_REPO:go-gin$CIRCLE_BUILD_NUM\"" go-gin-deploy.yaml 
+            yq eval -i ".spec.template.spec.containers[0].image=\"$DOCKERHUB_REPO:node-next$CIRCLE_BUILD_NUM\"" node-next-deploy.yaml 
       - run:
           name: Commit And Push This Changes
           command: |
             cd eem-manifests
-            git add manifests/go-gin-deploy.yaml
+            git add manifests/.
             git commit -m "update image tag"
             git push origin update-image-tag-$CIRCLE_BUILD_NUM
 
